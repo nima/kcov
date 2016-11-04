@@ -9,6 +9,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <sys/param.h>
 #include <signal.h>
 
 #include <list>
@@ -19,6 +20,8 @@
 
 using namespace kcov;
 using namespace lldb;
+
+extern char **environ;
 
 class LLDBEngine : public IEngine, public IFileParser
 {
@@ -116,10 +119,17 @@ public:
 
 	bool start(IEventListener &listener, const std::string &executable)
 	{
+		char buf[MAXPATHLEN + 1];
 		SBError error;
 		SBListener l;
 
 		m_listener = &listener;
+
+		if (getcwd(buf, sizeof(buf)) < 0) {
+			error("No current WD?\n");
+
+			return false;
+		}
 
 		SBBreakpoint bp = m_target.BreakpointCreateByName("main");
 		if (!bp.IsValid()) {
@@ -130,11 +140,11 @@ public:
 
 		m_process = m_target.Launch(l,
 				IConfiguration::getInstance().getArgv(),
-				NULL,
+				(const char **)environ,
 				"/dev/stdin",
 				"/dev/stdout",
 				"/dev/stderr",
-				"/",
+				buf,
 				0,
 				false, // Don't stop when started, but on the first BP to get the load addresses
 				error);
