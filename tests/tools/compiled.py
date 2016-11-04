@@ -111,7 +111,7 @@ class MainTestBase(testbase.KcovTestCase):
         assert parse_cobertura.hitsPerLine(dom, "main.cc", 14) == None
         assert parse_cobertura.hitsPerLine(dom, "main.cc", 18) >= 1
         assert parse_cobertura.hitsPerLine(dom, "main.cc", 25) == 1
-        assert parse_cobertura.hitsPerLine(dom, "file.c", 6) == 1
+        assert parse_cobertura.hitsPerLine(dom, "file.c", 6) >= 1
         assert parse_cobertura.hitsPerLine(dom, "file2.c", 7) == 0
 
 
