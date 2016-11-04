@@ -132,7 +132,7 @@ public:
 		}
 
 		m_process = m_target.Launch(l,
-				IConfiguration::getInstance().getArgv(),
+				&IConfiguration::getInstance().getArgv()[1], // Minus the executable
 				(const char **)environ,
 				"/dev/stdin",
 				"/dev/stdout",
