@@ -131,13 +131,6 @@ public:
 			return false;
 		}
 
-		SBBreakpoint bp = m_target.BreakpointCreateByName("main");
-		if (!bp.IsValid()) {
-			error("No main symbol?\n");
-
-			return false;
-		}
-
 		m_process = m_target.Launch(l,
 				IConfiguration::getInstance().getArgv(),
 				(const char **)environ,
@@ -145,8 +138,8 @@ public:
 				"/dev/stdout",
 				"/dev/stderr",
 				buf,
-				0,
-				false, // Don't stop when started, but on the first BP to get the load addresses
+				eLaunchFlagDisableASLR, // We can then use file addresses
+				true, // Stop at entry point
 				error);
 
 		if (!m_process.IsValid()) {
@@ -193,7 +186,7 @@ public:
 				SBThread curThread = m_process.GetSelectedThread();
 				SBFrame frame = curThread.GetSelectedFrame();
 
-				ev = Event(ev_breakpoint, -1, frame.GetPCAddress().GetLoadAddress(m_target));
+				ev = Event(ev_breakpoint, -1, frame.GetPCAddress().GetFileAddress());
 			} break;
 
 			case eStateExited:
@@ -254,7 +247,7 @@ private:
 			for (LineListenerList_t::const_iterator lit = m_lineListeners.begin();
 				lit != m_lineListeners.end();
 				++lit)
-				(*lit)->onLine(filename, cur.GetLine(), addr.GetLoadAddress(m_target));
+				(*lit)->onLine(filename, cur.GetLine(), addr.GetFileAddress());
 		}
 
 	}
