@@ -2,7 +2,6 @@
 #include <engine.hh>
 #include <configuration.hh>
 #include <output-handler.hh>
-#include <lineid.hh>
 #include <utils.hh>
 
 #include <stdlib.h>
