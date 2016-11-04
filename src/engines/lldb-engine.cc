@@ -184,15 +184,28 @@ public:
 	{
 		StateType state = m_process.GetState();
 
-		if (state == eStateStopped)
-		{
-			SBThread curThread = m_process.GetSelectedThread();
-			SBFrame frame = curThread.GetSelectedFrame();
+		Event ev;
 
-			Event ev(ev_breakpoint, -1, frame.GetPCAddress().GetLoadAddress(m_target));
-			m_listener->onEvent(ev);
+		switch (state)
+		{
+			case eStateStopped:
+			{
+				SBThread curThread = m_process.GetSelectedThread();
+				SBFrame frame = curThread.GetSelectedFrame();
+
+				ev = Event(ev_breakpoint, -1, frame.GetPCAddress().GetLoadAddress(m_target));
+			} break;
+
+			case eStateExited:
+			{
+				ev = Event(ev_exit, m_process.GetExitStatus());
+			} break;
+
+			default:
+				break;
 		}
 
+		m_listener->onEvent(ev);
 		SBError err = m_process.Continue();
 
 		return err.Success();
