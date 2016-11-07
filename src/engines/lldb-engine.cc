@@ -220,7 +220,7 @@ public:
 
 	void kill(int signal)
 	{
-		m_process.Destroy();
+		m_process.Signal(signal);
 	}
 
 
