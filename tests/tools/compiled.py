@@ -5,6 +5,7 @@ import sys
 import os
 
 class illegal_insn(testbase.KcovTestCase):
+    @unittest.skipIf(not sys.platform.startswith("linux"), "Linux-only")
     def runTest(self):
         self.setUp()
         rv, output = self.do(testbase.kcov + " " + testbase.outbase + "/kcov " + testbase.testbuild + "/illegal-insn", False)
@@ -42,6 +43,7 @@ class fork_64(ForkBase):
         self.doTest("fork")
 
 class fork_32(ForkBase):
+    @unittest.skipIf(not sys.platform.startswith("linux"), "Linux-only")
     def runTest(self):
         self.doTest("fork-32")
 
@@ -240,6 +242,8 @@ class signals_self(testbase.KcovTestCase):
         assert o.find("kcov: Process exited with signal 6") != -1
 
 class collect_and_report_only(testbase.KcovTestCase):
+    # Cannot work with combined Engine / Parser
+    @unittest.skipIf(not sys.platform.startswith("linux"), "Linux-only")
     def runTest(self):
         self.setUp()
         noKcovRv,o = self.do(testbase.testbuild + "/main-tests ", False)
