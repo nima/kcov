@@ -189,8 +189,9 @@ public:
 	bool continueExecution()
 	{
 		StateType state = m_process.GetState();
-
 		Event ev;
+
+		kcov_debug(BP_MSG, "STOPPED in state %d\n", state);
 
 		switch (state)
 		{
