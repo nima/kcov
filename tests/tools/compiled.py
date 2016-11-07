@@ -1,6 +1,7 @@
 import testbase
 import unittest
 import parse_cobertura
+import sys
 import os
 
 class illegal_insn(testbase.KcovTestCase):
@@ -265,6 +266,7 @@ class setpgid_kill(testbase.KcovTestCase):
         assert o.find("SUCCESS") != -1
 
 class attach_process_with_threads(testbase.KcovTestCase):
+    @unittest.skipIf(not sys.platform.startswith("linux"), "Linux-only")
     def runTest(self):
         self.setUp()
         rv,o = self.do(testbase.sources + "/tests/daemon/test-script.sh " + testbase.kcov + " " + testbase.outbase + "/kcov " + testbase.testbuild + "/issue31", False)
@@ -294,6 +296,7 @@ class merge_same_file_in_multiple_binaries(testbase.KcovTestCase):
 
 
 class debuglink(testbase.KcovTestCase):
+    @unittest.skipIf(not sys.platform.startswith("linux"), "Linux-only")
     def runTest(self):
         self.setUp()
         os.system("rm -rf %s/.debug" % (testbase.outbase))
@@ -394,6 +397,7 @@ class dlopen_in_ignored_source_file(testbase.KcovTestCase):
         assert parse_cobertura.hitsPerLine(dom, "solib.c", 12) == 0
 
 class daemon_no_wait_for_last_child(testbase.KcovTestCase):
+    @unittest.skipIf(not sys.platform.startswith("linux"), "Linux-only")
     @unittest.expectedFailure
     def runTest(self):
         self.setUp()
