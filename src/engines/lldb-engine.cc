@@ -27,6 +27,7 @@ class LLDBEngine : public IEngine, public IFileParser
 {
 public:
 	LLDBEngine() :
+		m_useLoadAddresses(false),
 		m_listener(NULL)
 	{
 		SBDebugger::Initialize();
@@ -131,25 +132,37 @@ public:
 			return false;
 		}
 
-		m_process = m_target.Launch(l,
-				&IConfiguration::getInstance().getArgv()[1], // Minus the executable
-				(const char **)environ,
-				"/dev/stdin",
-				"/dev/stdout",
-				"/dev/stderr",
-				buf,
-				eLaunchFlagDisableASLR, // We can then use file addresses
-				true, // Stop at entry point
-				error);
+		unsigned int pid = IConfiguration::getInstance().keyAsInt("attach-pid");
+
+		if (pid != 0) {
+			// Attach to running process, use load addresses in this case
+			m_useLoadAddresses = true;
+
+			m_process = m_target.AttachToProcessWithID(l, (lldb::pid_t)pid, error);
+		} else {
+			m_useLoadAddresses = false;
+
+			// Launch process
+			m_process = m_target.Launch(l,
+					&IConfiguration::getInstance().getArgv()[1], // Minus the executable
+					(const char **)environ,
+					"/dev/stdin",
+					"/dev/stdout",
+					"/dev/stderr",
+					buf,
+					eLaunchFlagDisableASLR, // We can then use file addresses
+					true, // Stop at entry point
+					error);
+		}
 
 		if (!m_process.IsValid()) {
-			kcov_debug(BP_MSG, "Cannot launch process\n");
+			error("Cannot launch process: %s\n", error.GetCString());
 
 			return false;
 		}
 
 		if (error.Fail()) {
-			kcov_debug(BP_MSG, "Launch failure\n");
+			error("Launch failure\n");
 
 			return false;
 		}
@@ -186,7 +199,7 @@ public:
 				SBThread curThread = m_process.GetSelectedThread();
 				SBFrame frame = curThread.GetSelectedFrame();
 
-				ev = Event(ev_breakpoint, -1, frame.GetPCAddress().GetFileAddress());
+				ev = Event(ev_breakpoint, -1, getAddress(frame.GetPCAddress()));
 			} break;
 
 			case eStateExited:
@@ -211,6 +224,14 @@ public:
 
 
 private:
+	unsigned long getAddress(const SBAddress &addr) const
+	{
+		if (m_useLoadAddresses)
+			return addr.GetLoadAddress(m_target);
+
+		return addr.GetFileAddress();
+	}
+
 	void handleModule(SBModule &module)
 	{
 		for (uint32_t i = 0; i < module.GetNumCompileUnits(); i++)
@@ -247,7 +268,7 @@ private:
 			for (LineListenerList_t::const_iterator lit = m_lineListeners.begin();
 				lit != m_lineListeners.end();
 				++lit)
-				(*lit)->onLine(filename, cur.GetLine(), addr.GetFileAddress());
+				(*lit)->onLine(filename, cur.GetLine(), getAddress(addr));
 		}
 
 	}
@@ -264,6 +285,7 @@ private:
 	typedef std::vector<ILineListener *> LineListenerList_t;
 	typedef std::vector<IFileListener *> FileListenerList_t;
 
+	bool m_useLoadAddresses;
 	std::string m_filename;
 
 	LineListenerList_t m_lineListeners;
