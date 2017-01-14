@@ -10,7 +10,6 @@
 #include <unordered_map>
 #include <functional>
 #include <map>
-#include <fstream>
 
 #include "swap-endian.hh"
 
@@ -47,7 +46,6 @@ public:
 		m_hashFilename = fileParser.getParserType() == "ELF";
 
 		m_dbFileName = IConfiguration::getInstance().keyAsString("target-directory") + "/coverage.db";
-		m_unreachablePattern = IConfiguration::getInstance().keyAsString("unreachable");
 	}
 
 	~Reporter()
@@ -312,23 +310,6 @@ private:
 
 			fp = new File(hash);
 
-			// Detect unreachable lines (if requested)
-			if (!m_unreachablePattern.empty()) {
-				std::ifstream in(file);
-				if (in.is_open()) {
-					std::string line;
-					unsigned lineNr=0;
-					while (getline(in,line)) {
-						++lineNr;
-						if (line.find(m_unreachablePattern)!=std::string::npos) {
-							Line *line = new Line(fp->getFileHash(), lineNr);
-							line->markUnreachable();
-							fp->addLine(lineNr, line);
-						}
-					}
-				}
-			}
-
 			m_files[file] = fp;
 		}
 
@@ -436,22 +417,8 @@ private:
 
 		Line(uint64_t fileHash, unsigned int lineNr) :
 			m_lineId((fileHash << 32ULL) | lineNr),
-			m_order(0), m_unreachable(false)
+			m_order(0)
 		{
-		}
-
-		void markUnreachable()
-		{
-			m_unreachable = true;
-		}
-
-		bool isUnreachable() const
-		{
-			if (!m_unreachable)
-				return false;
-
-			// The line is marked as unreachable, but perhaps it is reachable in reality
-			return !hits();
 		}
 
 		uint64_t getOrder() const
@@ -603,7 +570,6 @@ private:
 		AddrToHitsMap_t m_addrs;
 		uint64_t m_lineId;
 		uint64_t m_order;
-		bool m_unreachable;
 	};
 
 	class File
@@ -706,7 +672,7 @@ private:
 			if (lineNr >= m_lines.size())
 				return false;
 
-			return (m_lines[lineNr] != NULL) && (!m_lines[lineNr]->isUnreachable());
+			return m_lines[lineNr] != NULL;
 		}
 
 	private:
@@ -751,7 +717,6 @@ private:
 
 	bool m_unmarshallingDone;
 	std::string m_dbFileName;
-	std::string m_unreachablePattern;
 
 	uint64_t m_order;
 };

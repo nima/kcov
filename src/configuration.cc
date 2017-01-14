@@ -81,7 +81,6 @@ public:
 				" --coveralls-id=id       Travis CI job ID or secret repo_token for uploads to\n"
 				"                         Coveralls.io\n"
 				" --strip-path=path       If not set, max common path will be stripped away.\n"
-				" --unreachable=pat       Consider lines that match the pattern to be unreachable.\n"
 				"%s"
 				"\n"
 				"Examples:\n"
@@ -123,7 +122,6 @@ public:
 				{"include-path", required_argument, 0, 'I'},
 				{"coveralls-id", required_argument, 0, 'T'},
 				{"strip-path", required_argument, 0, 'Z'},
-                                {"unreachable", required_argument, 0, 'u'},
 				{"debug", required_argument, 0, 'D'},
 				{"debug-force-bash-stderr", no_argument, 0, 'd'},
 				{"bash-handle-sh-invocation", no_argument, 0, 's'},
@@ -312,9 +310,6 @@ public:
 				break;
 			case 'Z':
 				setKey("strip-path", std::string(optarg));
-				break;
-			case 'u':
-				setKey("unreachable", std::string(optarg));
 				break;
 			case 'x':
 				setKey("exclude-pattern", getCommaSeparatedList(std::string(optarg)));
@@ -511,7 +506,6 @@ public:
 		setKey("daemonize-on-first-process-exit", 0);
 		setKey("coveralls-id", "");
 		setKey("strip-path", "");
-		setKey("unreachable", "");
 		setKey("orig-path-prefix", "");
 		setKey("new-path-prefix", "");
 		setKey("running-mode", IConfiguration::MODE_COLLECT_AND_REPORT);
