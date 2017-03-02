@@ -5,6 +5,7 @@ set (CMAKE_MODULE_PATH  ${CMAKE_MODULE_PATH}
                         ${CMAKE_CURRENT_SOURCE_DIR}/../../cmake)
 find_package (Threads)
 find_package (Bfd)
+find_package (Dyninst)
 
 include(TargetArch)
 target_architecture(CMAKE_TARGET_ARCHITECTURES)
@@ -51,6 +52,9 @@ set (DISASSEMBLER_SRCS
 	parsers/dummy-disassembler.cc
 )
 
+set (DYNINST_SRCS
+)
+
 set (HAS_LIBBFD "0")
 
 if("${CMAKE_TARGET_ARCHITECTURES}" STREQUAL "i386" OR "${CMAKE_TARGET_ARCHITECTURES}" STREQUAL "x86_64")
@@ -65,6 +69,13 @@ if("${CMAKE_TARGET_ARCHITECTURES}" STREQUAL "i386" OR "${CMAKE_TARGET_ARCHITECTU
 			${LIBBFD_IBERTY_LIBRARY}
 		)
 	endif()
+endif()
+
+
+if(LIBBFD_FOUND)
+	set (DYNINST_SRCS
+		engines/dyninst-engine.cc
+	)
 endif()
 
 set (coveralls_SRCS writers/coveralls-writer.cc)
@@ -133,6 +144,7 @@ set (${KCOV}_SRCS
     engines/bash-engine.cc
     engines/gcov-engine.cc
     engines/python-engine.cc
+    ${DYNINST_SRCS}
     filter.cc
     gcov.cc
     main.cc
@@ -270,6 +282,7 @@ target_link_libraries(${KCOV}
 	${LIBELF_LIBRARIES}
 	stdc++
 	${LIBCURL_LIBRARIES}
+    ${DYNINST_LIBRARIES}
 	m
 	${DISASSEMBLER_LIBRARIES}
 	${LIBZ_LIBRARIES}
