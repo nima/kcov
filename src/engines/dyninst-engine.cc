@@ -27,6 +27,7 @@ class DyninstEngine : public IEngine, public IFileParser
 public:
 	DyninstEngine() :
 		m_listener(NULL),
+		m_bpatch(NULL),
 		m_target(NULL),
 		m_image(NULL)
 	{
@@ -92,6 +93,8 @@ public:
 
 	virtual void setupParser(IFilter *filter)
 	{
+		if (!m_bpatch)
+			m_bpatch = new BPatch();
 	}
 
 	std::string getParserType()
@@ -113,9 +116,9 @@ public:
 		unsigned int pid = conf.keyAsInt("attach-pid");
 
 		if (pid != 0)
-			m_target = m_bpatch.processAttach(executable.c_str(), pid);
+			m_target = m_bpatch->processAttach(executable.c_str(), pid);
 		else
-			m_target = m_bpatch.processCreate(executable.c_str(), conf.getArgv());
+			m_target = m_bpatch->processCreate(executable.c_str(), conf.getArgv());
 
 
 		if (!m_target) {
@@ -150,7 +153,7 @@ public:
 		Event ev;
 
 		m_target->continueExecution();
-		bool res = m_bpatch.waitForStatusChange();
+		bool res = m_bpatch->waitForStatusChange();
 
 		if (res) {
 		}
@@ -178,7 +181,6 @@ private:
 		{
 			BPatch_Vector<BPatch_statement> stmts;
 
-			printf("STMT?\n");
 			bool res = (*it)->getStatements(stmts);
 			if (!res)
 				continue;
@@ -219,7 +221,7 @@ private:
 	FileListenerList_t m_fileListeners;
 
 	IEventListener *m_listener;
-	BPatch m_bpatch;
+	BPatch *m_bpatch;
 	BPatch_process *m_target;
 	BPatch_image *m_image;
 };
