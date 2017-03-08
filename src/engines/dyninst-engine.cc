@@ -19,8 +19,10 @@
 
 #include <dyninst/BPatch.h>
 #include <dyninst/BPatch_statement.h>
+#include <dyninst/BPatch_point.h>
 
 using namespace kcov;
+void g_dyninstStopThreadCallback(BPatch_point *at_point, void *handlers);
 
 class DyninstEngine : public IEngine, public IFileParser
 {
@@ -41,7 +43,29 @@ public:
 	// From IEngine
 	virtual int registerBreakpoint(unsigned long addr)
 	{
+		std::vector<BPatch_point *> pts;
+
+		if (!m_image->findPoints(addr, pts))
+			return -1;
+
+		BPatch_stopThreadExpr stopThread(g_dyninstStopThreadCallback, BPatch_originalAddressExpr());
+		BPatch_breakPointExpr bpt;
+		addSnippet(bpt, pts);
+
 		return 0;
+	}
+
+	void addSnippet(BPatch_snippet &snippet, std::vector<BPatch_point *> &where)
+	{
+		BPatchSnippetHandle *handle = m_target->insertSnippet(snippet, where);
+
+		if (!handle)
+			return;
+
+		for (std::vector<BPatch_point *>::iterator it = where.begin();
+				it != where.end();
+				++it)
+			m_snippetsByPoint[*it] = handle;
 	}
 
 
@@ -120,7 +144,6 @@ public:
 		else
 			m_target = m_bpatch->processCreate(executable.c_str(), conf.getArgv());
 
-
 		if (!m_target) {
 			error("Cannot launch process\n");
 
@@ -151,18 +174,53 @@ public:
 	bool continueExecution()
 	{
 		Event ev;
+		bool out = true;
 
 		m_target->continueExecution();
 		bool res = m_bpatch->waitForStatusChange();
 
-		if (res) {
+		if (!res)
+			return false;
+
+		if (m_target->isTerminated()) {
+			ev.type = ev_exit;
+			ev.data = m_target->getExitCode();
+
+			printf("TERM? %d\n", ev.data);
+			return false;
 		}
 
-		kcov_debug(BP_MSG, "STOPPED in state\n");
+		std::vector<BPatch_thread *> threads;
+
+		m_target->getThreads(threads);
+
+		for (std::vector<BPatch_thread *>::iterator it = threads.begin();
+				it != threads.end();
+				++it) {
+			BPatch_Vector<BPatch_frame> stack;
+
+			if (!(*it)->getCallStack(stack))
+				continue;
+
+			if (stack.size() < 6)
+				continue;
+
+			void *pt = stack[5].getPC();
+
+			if (!pt)
+				continue;
+
+			printf("ANKA: %p\n", pt);
+			ev.addr = (uint64_t)pt;
+			ev.type = ev_breakpoint;
+			ev.data = 0;
+		}
+
+		kcov_debug(BP_MSG, "STOPPED\n");
 
 		m_listener->onEvent(ev);
 
-		return true;
+		return out;
 	}
 
 
@@ -171,8 +229,22 @@ public:
 		// FIXME! use kill
 	}
 
+	// Called below. Private really.
+	void dyninstStopThreadCallback(BPatch_point *at_point, void *data)
+	{
+		printf("K anka %p!\n", data);
+
+		BPatchSnippetHandle *snippet = m_snippetsByPoint[at_point];
+
+		if (snippet != NULL) {
+			printf("Found\n");
+			m_target->deleteSnippet(snippet);
+			m_snippetsByPoint.erase(at_point);
+		}
+	}
 
 private:
+
 	void handleModules(BPatch_Vector<BPatch_module *> &modules)
 	{
 		for (BPatch_Vector<BPatch_module *>::iterator it = modules.begin();
@@ -200,7 +272,14 @@ private:
 
 	void handleOneStatement(BPatch_statement &stmt)
 	{
-		printf("XXX: %s\n", stmt.fileName());
+		const std::string filename = stmt.fileName();
+		int lineNo = stmt.lineNumber();
+		uint64_t addr = (uint64_t)stmt.startAddr();
+
+		for (LineListenerList_t::iterator it = m_lineListeners.begin();
+				it != m_lineListeners.end();
+				++it)
+			(*it)->onLine(filename, lineNo, addr);
 	}
 
 	void reportEvent(enum event_type type, int data = -1, uint64_t address = 0)
@@ -224,6 +303,8 @@ private:
 	BPatch *m_bpatch;
 	BPatch_process *m_target;
 	BPatch_image *m_image;
+
+	std::unordered_map<BPatch_point *, BPatchSnippetHandle *> m_snippetsByPoint;
 };
 
 
@@ -238,7 +319,13 @@ public:
 		g_dyninstEngine = new DyninstEngine();
 	}
 };
-static DyninstCtor g_bashCtor;
+static DyninstCtor g_dyninstCtor;
+
+
+void g_dyninstStopThreadCallback(BPatch_point *at_point, void *data)
+{
+	g_dyninstEngine->dyninstStopThreadCallback(at_point, data);
+}
 
 
 class DyninstEngineCreator : public IEngineFactory::IEngineCreator

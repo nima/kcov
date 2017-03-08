@@ -101,12 +101,12 @@ if (${CMAKE_SYSTEM_NAME} MATCHES Linux)
 	find_package (LibElf REQUIRED)
 	find_package (Elfutils REQUIRED)
 	set (ELF_SRCS
-		engines/clang-coverage-engine.cc
-		engines/ptrace.cc
+#		engines/clang-coverage-engine.cc
+#		engines/ptrace.cc
 		engines/kernel-engine.cc
-		parsers/elf.cc
-		parsers/elf-parser.cc
-		parsers/dwarf.cc
+#		parsers/elf.cc
+#		parsers/elf-parser.cc
+#		parsers/dwarf.cc
 		solib-handler.cc
 		solib-parser/phdr_data.c
 	)
@@ -278,7 +278,7 @@ endif(SPECIFY_RPATH)
 add_executable (${KCOV} ${${KCOV}_SRCS} ${SOLIB_generated} bash-redirector-library.cc python-helper.cc bash-helper.cc html-data-files.cc version.c)
 
 target_link_libraries(${KCOV}
-	${LIBDW_LIBRARIES}
+#	${LIBDW_LIBRARIES}
 	${LIBELF_LIBRARIES}
 	stdc++
 	${LIBCURL_LIBRARIES}
