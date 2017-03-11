@@ -22,7 +22,6 @@
 #include <dyninst/BPatch_point.h>
 
 using namespace kcov;
-void g_dyninstStopThreadCallback(BPatch_point *at_point, void *handlers);
 
 class DyninstEngine : public IEngine, public IFileParser
 {
@@ -31,7 +30,9 @@ public:
 		m_listener(NULL),
 		m_bpatch(NULL),
 		m_target(NULL),
-		m_image(NULL)
+		m_image(NULL),
+		m_addressReporterFunction(NULL),
+		m_pipe(NULL)
 	{
 		IParserManager::getInstance().registerParser(*this);
 	}
@@ -48,9 +49,13 @@ public:
 		if (!m_image->findPoints(addr, pts))
 			return -1;
 
-		BPatch_stopThreadExpr stopThread(g_dyninstStopThreadCallback, BPatch_originalAddressExpr());
-		BPatch_breakPointExpr bpt;
-		addSnippet(bpt, pts);
+		std::vector< BPatch_snippet * > args;
+
+		BPatch_originalAddressExpr orig;
+		args.push_back(&orig);
+
+		BPatch_funcCallExpr call(*m_addressReporterFunction, args);
+		addSnippet(call, pts);
 
 		return 0;
 	}
@@ -137,6 +142,8 @@ public:
 
 		m_listener = &listener;
 
+		setupEnvironment();
+
 		unsigned int pid = conf.keyAsInt("attach-pid");
 
 		if (pid != 0)
@@ -150,6 +157,14 @@ public:
 			return false;
 		}
 
+		// FIXME!!!!
+		BPatch_object *p = m_target->loadLibrary("/home/vagrant/build/kcov/target/src/libkcov-dyninst.so");
+		if (!p) {
+			kcov_debug(INFO_MSG, "Can't load kcov dyninst library\n");
+
+			return false;
+		}
+
 		m_image = m_target->getImage();
 
 		if (!m_image) {
@@ -157,6 +172,15 @@ public:
 
 			return false;
 		}
+
+		std::vector<BPatch_function *> funcs;
+		m_image->findFunction("kcov_dyninst_report_address", funcs);
+		if (funcs.empty() ) {
+			kcov_debug(INFO_MSG, "unable to find function for kcov\n");
+
+			return false;
+		}
+		m_addressReporterFunction = funcs[0];
 
 		BPatch_Vector<BPatch_module *> *modules = m_image->getModules();
 
@@ -166,10 +190,6 @@ public:
 		return true;
 	}
 
-	bool checkEvents()
-	{
-		return false;
-	}
 
 	bool continueExecution()
 	{
@@ -177,48 +197,28 @@ public:
 		bool out = true;
 
 		m_target->continueExecution();
-		bool res = m_bpatch->waitForStatusChange();
 
-		if (!res)
-			return false;
+		bool res = m_bpatch->pollForStatusChange();
 
-		if (m_target->isTerminated()) {
-			ev.type = ev_exit;
-			ev.data = m_target->getExitCode();
-
-			printf("TERM? %d\n", ev.data);
-			return false;
+		if (!res) {
+			checkEvents();
+			return true;
 		}
 
-		std::vector<BPatch_thread *> threads;
 
-		m_target->getThreads(threads);
+			if (m_target->isTerminated()) {
 
-		for (std::vector<BPatch_thread *>::iterator it = threads.begin();
-				it != threads.end();
-				++it) {
-			BPatch_Vector<BPatch_frame> stack;
+				while (1)
+				{
+					if (!checkEvents())
+						break;
+				}
 
-			if (!(*it)->getCallStack(stack))
-				continue;
+				ev.type = ev_exit;
+				ev.data = m_target->getExitCode();
 
-			if (stack.size() < 6)
-				continue;
-
-			void *pt = stack[5].getPC();
-
-			if (!pt)
-				continue;
-
-			printf("ANKA: %p\n", pt);
-			ev.addr = (uint64_t)pt;
-			ev.type = ev_breakpoint;
-			ev.data = 0;
-		}
-
-		kcov_debug(BP_MSG, "STOPPED\n");
-
-		m_listener->onEvent(ev);
+				return false;
+			}
 
 		return out;
 	}
@@ -229,21 +229,67 @@ public:
 		// FIXME! use kill
 	}
 
-	// Called below. Private really.
-	void dyninstStopThreadCallback(BPatch_point *at_point, void *data)
+private:
+	bool checkEvents()
 	{
-		printf("K anka %p!\n", data);
-
-		BPatchSnippetHandle *snippet = m_snippetsByPoint[at_point];
-
-		if (snippet != NULL) {
-			printf("Found\n");
-			m_target->deleteSnippet(snippet);
-			m_snippetsByPoint.erase(at_point);
+		// Open the pipe when the program is already running to avoid hanging on it
+		if (!m_pipe) {
+			m_pipe = fopen(m_pipePath.c_str(), "r");
+			panic_if (!m_pipe,
+					"Can't open pipe %s", m_pipePath.c_str());
 		}
+
+		for (unsigned i = 0; i < 64; i++) {
+			uint8_t *buf[sizeof(void *)];
+			uint64_t *p;
+
+			p = readCoverageDatum((void *)buf, sizeof(buf));
+
+			if (!p)
+				return false;
+
+			reportEvent(ev_breakpoint, 0, *p);
+		}
+
+		return true;
 	}
 
-private:
+	uint64_t *readCoverageDatum(void *buf, size_t totalSize)
+	{
+		ssize_t rv;
+
+		if (feof(m_pipe))
+			return NULL; // Not an error
+
+		// No data?
+		if (!file_readable(m_pipe, 100))
+			return NULL;
+
+		memset(buf, 0, totalSize);
+		rv = fread(buf, sizeof(uint64_t), 1, m_pipe);
+		if (rv == 0)
+			return NULL; // Not an error
+
+		return (uint64_t *)buf;
+	}
+
+	void setupEnvironment()
+	{
+		m_pipePath = IOutputHandler::getInstance().getOutDirectory() + "kcov-dyninst.pipe";
+
+		m_pipePath = "/tmp/kcov-dyninst.pipe";
+		std::string env = "KCOV_DYNINST_PIPE_PATH=" + m_pipePath;
+		unlink(m_pipePath.c_str());
+		if (mkfifo(m_pipePath.c_str(), 0600) < 0) {
+			error("Can't create FIFO %s\n", m_pipePath.c_str());
+
+			return;
+		}
+
+		char *envString = (char *)xmalloc(env.size() + 1);
+		strcpy(envString, env.c_str());
+		putenv(envString);
+	}
 
 	void handleModules(BPatch_Vector<BPatch_module *> &modules)
 	{
@@ -305,6 +351,10 @@ private:
 	BPatch_image *m_image;
 
 	std::unordered_map<BPatch_point *, BPatchSnippetHandle *> m_snippetsByPoint;
+	BPatch_function *m_addressReporterFunction;
+	FILE *m_pipe;
+
+	std::string m_pipePath;
 };
 
 
@@ -320,12 +370,6 @@ public:
 	}
 };
 static DyninstCtor g_dyninstCtor;
-
-
-void g_dyninstStopThreadCallback(BPatch_point *at_point, void *data)
-{
-	g_dyninstEngine->dyninstStopThreadCallback(at_point, data);
-}
 
 
 class DyninstEngineCreator : public IEngineFactory::IEngineCreator

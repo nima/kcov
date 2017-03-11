@@ -95,6 +95,7 @@ set (ELF_SRCS
 set (MACHO_SRCS
 )
 set (SOLIB_generated )
+set (DYNINST_SOLIB_generated )
 
 # Linux-specific sources
 if (${CMAKE_SYSTEM_NAME} MATCHES Linux)
@@ -114,6 +115,10 @@ if (${CMAKE_SYSTEM_NAME} MATCHES Linux)
 	add_library (${SOLIB} SHARED ${${SOLIB}_SRCS})
 	set_target_properties(${SOLIB} PROPERTIES SUFFIX ".so")
 	target_link_libraries(${SOLIB} dl)
+
+	add_library (kcov-dyninst SHARED engines/dyninst-lib.c)
+	set_target_properties(kcov-dyninst PROPERTIES SUFFIX ".so")
+	set (DYNINST_SOLIB_generated dyninst-library.cc)
 else()
 	find_library(LLDB_LIBRARY
       NAMES
@@ -210,6 +215,12 @@ add_custom_command(
    )
 
 add_custom_command(
+   OUTPUT dyninst-library.cc
+   COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/bin-to-c-source.py libkcov-dyninst.so __dyninst_library > dyninst-library.cc
+   DEPENDS ${SOLIB} ${CMAKE_CURRENT_SOURCE_DIR}/bin-to-c-source.py
+   )
+
+add_custom_command(
    OUTPUT bash-redirector-library.cc
    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/bin-to-c-source.py $<TARGET_FILE:bash_execve_redirector> bash_redirector_library > bash-redirector-library.cc
    DEPENDS bash_execve_redirector ${CMAKE_CURRENT_SOURCE_DIR}/bin-to-c-source.py
@@ -275,7 +286,7 @@ if(SPECIFY_RPATH)
 	ENDIF("${isSystemDir}" STREQUAL "-1")
 endif(SPECIFY_RPATH)
 
-add_executable (${KCOV} ${${KCOV}_SRCS} ${SOLIB_generated} bash-redirector-library.cc python-helper.cc bash-helper.cc html-data-files.cc version.c)
+add_executable (${KCOV} ${${KCOV}_SRCS} ${SOLIB_generated} bash-redirector-library.cc dyninst-library.cc python-helper.cc bash-helper.cc html-data-files.cc version.c)
 
 target_link_libraries(${KCOV}
 #	${LIBDW_LIBRARIES}
