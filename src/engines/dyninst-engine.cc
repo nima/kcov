@@ -3,6 +3,7 @@
 #include <configuration.hh>
 #include <output-handler.hh>
 #include <utils.hh>
+#include <generated-data-base.hh>
 
 #include <stdlib.h>
 #include <unistd.h>
@@ -20,8 +21,12 @@
 #include <dyninst/BPatch.h>
 #include <dyninst/BPatch_statement.h>
 #include <dyninst/BPatch_point.h>
+#include <dyninst/BPatch_function.h>
 
 using namespace kcov;
+
+extern GeneratedData __dyninst_library_data;
+extern GeneratedData __dyninst_binary_library_data;
 
 class DyninstEngine : public IEngine, public IFileParser
 {
@@ -29,10 +34,14 @@ public:
 	DyninstEngine() :
 		m_listener(NULL),
 		m_bpatch(NULL),
-		m_target(NULL),
+		m_process(NULL),
+		m_addressSpace(NULL),
+		m_binaryEdit(NULL),
 		m_image(NULL),
+		m_reporterInitFunction(NULL),
 		m_addressReporterFunction(NULL),
-		m_pipe(NULL)
+		m_pipe(NULL),
+		m_breakpointIdx(0)
 	{
 		IParserManager::getInstance().registerParser(*this);
 	}
@@ -50,19 +59,22 @@ public:
 			return -1;
 
 		std::vector< BPatch_snippet * > args;
+		BPatch_snippet id = BPatch_constExpr(m_breakpointIdx);
 
-		BPatch_originalAddressExpr orig;
-		args.push_back(&orig);
+		args.push_back(&id);
 
 		BPatch_funcCallExpr call(*m_addressReporterFunction, args);
 		addSnippet(call, pts);
 
-		return 0;
+		m_breakpointIdx++;
+
+		return m_breakpointIdx - 1;
 	}
 
 	void addSnippet(BPatch_snippet &snippet, std::vector<BPatch_point *> &where)
 	{
-		BPatchSnippetHandle *handle = m_target->insertSnippet(snippet, where);
+		BPatchSnippetHandle *handle = m_addressSpace->insertSnippet(snippet, where,
+				BPatch_lastSnippet);
 
 		if (!handle)
 			return;
@@ -128,7 +140,7 @@ public:
 
 	std::string getParserType()
 	{
-		return "lldb";
+		return "dyninst";
 	}
 
 	unsigned int matchParser(const std::string &filename, uint8_t *data, size_t dataSize)
@@ -139,33 +151,63 @@ public:
 	bool start(IEventListener &listener, const std::string &executable)
 	{
 		IConfiguration &conf = IConfiguration::getInstance();
+		std::string libraryPath =
+				IOutputHandler::getInstance().getBaseDirectory() + "libkcov-dyninst.so";
+		std::string binaryLibraryPath =
+				IOutputHandler::getInstance().getBaseDirectory() + "libkcov-binary-dyninst.so";
+
+		write_file(__dyninst_library_data.data(), __dyninst_library_data.size(),
+				"%s", libraryPath.c_str());
+		write_file(__dyninst_binary_library_data.data(), __dyninst_binary_library_data.size(),
+				"%s", binaryLibraryPath.c_str());
 
 		m_listener = &listener;
 
 		setupEnvironment();
 
-		unsigned int pid = conf.keyAsInt("attach-pid");
+		if (0) {
+			unsigned int pid = conf.keyAsInt("attach-pid");
 
-		if (pid != 0)
-			m_target = m_bpatch->processAttach(executable.c_str(), pid);
-		else
-			m_target = m_bpatch->processCreate(executable.c_str(), conf.getArgv());
+			if (pid != 0)
+				m_process = m_bpatch->processAttach(executable.c_str(), pid);
+			else
+				m_process = m_bpatch->processCreate(executable.c_str(), conf.getArgv());
 
-		if (!m_target) {
-			error("Cannot launch process\n");
+			if (!m_process) {
+				error("Cannot launch process\n");
 
-			return false;
+				return false;
+			}
+
+			BPatch_object *p = m_process->loadLibrary(libraryPath.c_str());
+			if (!p) {
+				kcov_debug(INFO_MSG, "Can't load kcov dyninst library\n");
+
+				return false;
+			}
+
+			// Is also an address space
+			m_addressSpace = m_process;
+		} else {
+			m_binaryEdit = m_bpatch->openBinary(executable.c_str());
+
+			if (!m_binaryEdit) {
+				error("Can't open binary for rewriting\n");
+
+				return false;
+			}
+
+			BPatch_object *p = m_binaryEdit->loadLibrary(binaryLibraryPath.c_str());
+			if (!p) {
+				kcov_debug(INFO_MSG, "Can't load kcov dyninst library\n");
+
+				return false;
+			}
+
+			m_addressSpace = m_binaryEdit;
 		}
 
-		// FIXME!!!!
-		BPatch_object *p = m_target->loadLibrary("/home/vagrant/build/kcov/target/src/libkcov-dyninst.so");
-		if (!p) {
-			kcov_debug(INFO_MSG, "Can't load kcov dyninst library\n");
-
-			return false;
-		}
-
-		m_image = m_target->getImage();
+		m_image = m_addressSpace->getImage();
 
 		if (!m_image) {
 			// FIXME!
@@ -173,19 +215,41 @@ public:
 			return false;
 		}
 
-		std::vector<BPatch_function *> funcs;
-		m_image->findFunction("kcov_dyninst_report_address", funcs);
-		if (funcs.empty() ) {
-			kcov_debug(INFO_MSG, "unable to find function for kcov\n");
 
+		m_addressReporterFunction = lookupFunction("kcov_dyninst_binary_report_address");
+		m_reporterInitFunction = lookupFunction("kcov_dyninst_binary_init");
+
+		if (!m_addressReporterFunction || !m_reporterInitFunction)
 			return false;
-		}
-		m_addressReporterFunction = funcs[0];
 
 		BPatch_Vector<BPatch_module *> *modules = m_image->getModules();
 
 		if (modules)
 			handleModules(*modules);
+
+		BPatch_function *main = lookupFunction("main");
+		if (!main)
+			return false;
+
+		std::vector< BPatch_snippet * > args;
+		BPatch_snippet id = BPatch_constExpr(1234); // FIXME
+		BPatch_snippet size = BPatch_constExpr(m_breakpointIdx);
+
+		args.push_back(&id);
+		BPatch_funcCallExpr call(*main, args);
+
+		BPatch_Vector<BPatch_point *> mainEntries;
+		main->getEntryPoints(mainEntries);
+
+		BPatchSnippetHandle *handle = m_addressSpace->insertSnippet(call, mainEntries,
+				BPatch_firstSnippet);
+		if (!handle) {
+			error("Can't insert init func\n");
+			return false;
+		}
+
+		m_binaryEdit->writeFile("/tmp/anka");
+
 
 		return true;
 	}
@@ -193,10 +257,12 @@ public:
 
 	bool continueExecution()
 	{
+		return false;
+
 		Event ev;
 		bool out = true;
 
-		m_target->continueExecution();
+		m_process->continueExecution();
 
 		bool res = m_bpatch->pollForStatusChange();
 
@@ -206,7 +272,7 @@ public:
 		}
 
 
-			if (m_target->isTerminated()) {
+			if (m_process->isTerminated()) {
 
 				while (1)
 				{
@@ -215,7 +281,7 @@ public:
 				}
 
 				ev.type = ev_exit;
-				ev.data = m_target->getExitCode();
+				ev.data = m_process->getExitCode();
 
 				return false;
 			}
@@ -230,6 +296,20 @@ public:
 	}
 
 private:
+	BPatch_function *lookupFunction(const char *name)
+	{
+		std::vector<BPatch_function *> funcs;
+
+		m_image->findFunction(name, funcs);
+		if (funcs.empty()) {
+			error("unable to find function %s\n", name);
+
+			return NULL;
+		}
+
+		return funcs[0];
+	}
+
 	bool checkEvents()
 	{
 		// Open the pipe when the program is already running to avoid hanging on it
@@ -299,6 +379,9 @@ private:
 		{
 			BPatch_Vector<BPatch_statement> stmts;
 
+			char buf[256];
+			printf("M: %s\n", (*it)->getFullName(buf, 256));
+
 			bool res = (*it)->getStatements(stmts);
 			if (!res)
 				continue;
@@ -347,14 +430,18 @@ private:
 
 	IEventListener *m_listener;
 	BPatch *m_bpatch;
-	BPatch_process *m_target;
+	BPatch_process *m_process;
+	BPatch_addressSpace *m_addressSpace;
+	BPatch_binaryEdit *m_binaryEdit;
 	BPatch_image *m_image;
 
 	std::unordered_map<BPatch_point *, BPatchSnippetHandle *> m_snippetsByPoint;
+	BPatch_function *m_reporterInitFunction;
 	BPatch_function *m_addressReporterFunction;
 	FILE *m_pipe;
 
 	std::string m_pipePath;
+	unsigned int m_breakpointIdx;
 };
 
 

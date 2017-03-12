@@ -17,6 +17,8 @@ struct Instance
 	uint32_t *bits;
 	size_t bitVectorSize;
 	uint64_t id;
+
+	bool initialized;
 };
 
 static Instance g_instance;
@@ -25,7 +27,7 @@ static void write_report(unsigned int idx)
 {
 	(void)mkdir("/tmp/kcov-data", 0755);
 
-	std::string out = fmt("/tmp/kcov-data/%016llx.%u", g_instance.id, idx);
+	std::string out = fmt("/tmp/kcov-data/%016llx.%u", (long long)g_instance.id, idx);
 	FILE *fp = fopen(out.c_str(), "w");
 
 	// What to do?
@@ -39,17 +41,25 @@ static void write_report(unsigned int idx)
 	fclose(fp);
 }
 
-void kcov_dyninst_binary_init(uint64_t id, size_t vectorSize)
+extern "C" void kcov_dyninst_binary_init(uint64_t id, size_t vectorSize)
 {
 	g_instance.bits = (uint32_t *)malloc(vectorSize * sizeof(uint32_t));
 	g_instance.bitVectorSize = vectorSize;
 	g_instance.id = id;
+
+	g_instance.initialized = true;
 }
 
-void kcov_dyninst_binary_report_address(unsigned int bitIdx)
+extern "C" void kcov_dyninst_binary_report_address(unsigned int bitIdx)
 {
 	unsigned int wordIdx = bitIdx / 32;
 	unsigned int offset = bitIdx % 32;
+
+	if (!g_instance.initialized)
+	{
+		fprintf(stderr, "kcov: Library not initialized yet, missing point\n");
+		return;
+	}
 
 	if (wordIdx >= g_instance.bitVectorSize)
 	{
