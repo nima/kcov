@@ -17,18 +17,21 @@ struct Instance
 	uint32_t *bits;
 	size_t bitVectorSize;
 	uint64_t id;
+	time_t last_time;
 
 	bool initialized;
 };
 
 static Instance g_instance;
 
+
 static void write_report(unsigned int idx)
 {
 	(void)mkdir("/tmp/kcov-data", 0755);
 
-	std::string out = fmt("/tmp/kcov-data/%016llx.%u", (long long)g_instance.id, idx);
-	FILE *fp = fopen(out.c_str(), "w");
+	std::string out = fmt("/tmp/kcov-data/%016llx", (long long)g_instance.id);
+	std::string tmp = fmt("%s.%u", tmp.c_str(), idx);
+	FILE *fp = fopen(tmp.c_str(), "w");
 
 	// What to do?
 	if (!fp)
@@ -39,6 +42,12 @@ static void write_report(unsigned int idx)
 	fwrite(g_instance.bits, sizeof(uint32_t), g_instance.bitVectorSize, fp);
 
 	fclose(fp);
+	rename(tmp.c_str(), out.c_str());
+}
+
+static void write_at_exit(void)
+{
+	write_report(0);
 }
 
 extern "C" void kcov_dyninst_binary_init(uint64_t id, size_t vectorSize)
@@ -46,7 +55,9 @@ extern "C" void kcov_dyninst_binary_init(uint64_t id, size_t vectorSize)
 	g_instance.bits = (uint32_t *)malloc(vectorSize * sizeof(uint32_t));
 	g_instance.bitVectorSize = vectorSize;
 	g_instance.id = id;
+	g_instance.last_time = time(NULL);
 
+	atexit(write_at_exit);
 	g_instance.initialized = true;
 }
 
@@ -57,7 +68,7 @@ extern "C" void kcov_dyninst_binary_report_address(unsigned int bitIdx)
 
 	if (!g_instance.initialized)
 	{
-		fprintf(stderr, "kcov: Library not initialized yet, missing point\n");
+		fprintf(stderr, "kcov: Library not initialized yet, missing point %u\n", bitIdx);
 		return;
 	}
 
@@ -85,12 +96,10 @@ extern "C" void kcov_dyninst_binary_report_address(unsigned int bitIdx)
 
 
 	// Write out the report
-	static time_t last_time;
-
 	time_t now = time(NULL);
-	if (now - last_time >= 2)
+	if (now - g_instance.last_time >= 2)
 	{
 		write_report(bitIdx);
-		last_time = now;
+		g_instance.last_time = now;
 	}
 }

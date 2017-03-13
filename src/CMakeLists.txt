@@ -117,7 +117,7 @@ if (${CMAKE_SYSTEM_NAME} MATCHES Linux)
 	target_link_libraries(${SOLIB} dl)
 
 	add_library (kcov-dyninst SHARED engines/dyninst-lib.c)
-	add_library (kcov-binary-dyninst SHARED engines/dyninst-binary-lib.cc)
+	add_library (kcov-binary-dyninst SHARED engines/dyninst-binary-lib.cc utils.cc)
 	set_target_properties(kcov-dyninst PROPERTIES SUFFIX ".so")
 	set_target_properties(kcov-binary-dyninst PROPERTIES SUFFIX ".so")
 	set (DYNINST_SOLIB_generated dyninst-library.cc)

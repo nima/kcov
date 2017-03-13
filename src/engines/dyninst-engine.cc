@@ -232,11 +232,12 @@ public:
 			return false;
 
 		std::vector< BPatch_snippet * > args;
-		BPatch_snippet id = BPatch_constExpr(1234); // FIXME
+		BPatch_snippet id = BPatch_constExpr(0x1234); // FIXME
 		BPatch_snippet size = BPatch_constExpr(m_breakpointIdx);
 
 		args.push_back(&id);
-		BPatch_funcCallExpr call(*main, args);
+		args.push_back(&size);
+		BPatch_funcCallExpr call(*m_reporterInitFunction, args);
 
 		BPatch_Vector<BPatch_point *> mainEntries;
 		main->getEntryPoints(mainEntries);
@@ -378,9 +379,6 @@ private:
 				++it)
 		{
 			BPatch_Vector<BPatch_statement> stmts;
-
-			char buf[256];
-			printf("M: %s\n", (*it)->getFullName(buf, 256));
 
 			bool res = (*it)->getStatements(stmts);
 			if (!res)
