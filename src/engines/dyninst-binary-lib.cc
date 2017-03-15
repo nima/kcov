@@ -23,6 +23,8 @@ struct Instance
 };
 
 static Instance g_instance;
+static uint32_t early_hits[1024];
+static uint32_t early_hits_index;
 
 
 static void write_report(unsigned int idx)
@@ -61,22 +63,41 @@ extern "C" void kcov_dyninst_binary_init(uint64_t id, size_t vectorSize)
 	g_instance.initialized = true;
 }
 
-extern "C" void kcov_dyninst_binary_report_address(unsigned int bitIdx)
+extern "C" void kcov_dyninst_binary_report_address(uint32_t bitIdx)
 {
 	unsigned int wordIdx = bitIdx / 32;
 	unsigned int offset = bitIdx % 32;
-
-	if (!g_instance.initialized)
-	{
-		fprintf(stderr, "kcov: Library not initialized yet, missing point %u\n", bitIdx);
-		return;
-	}
 
 	if (wordIdx >= g_instance.bitVectorSize)
 	{
 		fprintf(stderr, "kcov: INTERNAL ERROR: Index out of bounds (%u vs %zu)\n",
 				wordIdx, g_instance.bitVectorSize);
 		return;
+	}
+
+	// Handle hits which happen before we're initialized
+	if (!g_instance.initialized)
+	{
+		uint32_t dst = __sync_fetch_and_add(&early_hits_index, 1);
+
+		if (dst >= sizeof(early_hits) / sizeof(early_hits[0]))
+		{
+			fprintf(stderr, "kcov: Library not initialized yet and hit table full, missing point %u\n", bitIdx);
+			return;
+		}
+		early_hits[dst] = bitIdx;
+		return;
+	}
+
+	if (early_hits_index != 0)
+	{
+		uint32_t to_loop = early_hits_index;
+
+		early_hits_index = 0; // Avoid inifite recursion
+		for (uint32_t i = 0; i < to_loop; i++)
+		{
+			kcov_dyninst_binary_report_address(early_hits[i]);
+		}
 	}
 
 	// Update the bit atomically

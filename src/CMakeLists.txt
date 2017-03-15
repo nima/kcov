@@ -116,11 +116,8 @@ if (${CMAKE_SYSTEM_NAME} MATCHES Linux)
 	set_target_properties(${SOLIB} PROPERTIES SUFFIX ".so")
 	target_link_libraries(${SOLIB} dl)
 
-	add_library (kcov-dyninst SHARED engines/dyninst-lib.c)
 	add_library (kcov-binary-dyninst SHARED engines/dyninst-binary-lib.cc utils.cc)
-	set_target_properties(kcov-dyninst PROPERTIES SUFFIX ".so")
 	set_target_properties(kcov-binary-dyninst PROPERTIES SUFFIX ".so")
-	set (DYNINST_SOLIB_generated dyninst-library.cc)
 else()
 	find_library(LLDB_LIBRARY
       NAMES
@@ -217,12 +214,6 @@ add_custom_command(
    )
 
 add_custom_command(
-   OUTPUT dyninst-library.cc
-   COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/bin-to-c-source.py libkcov-dyninst.so __dyninst_library > dyninst-library.cc
-   DEPENDS kcov-dyninst ${CMAKE_CURRENT_SOURCE_DIR}/bin-to-c-source.py
-   )
-
-add_custom_command(
    OUTPUT dyninst-binary-library.cc
    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/bin-to-c-source.py libkcov-binary-dyninst.so __dyninst_binary_library > dyninst-binary-library.cc
    DEPENDS kcov-binary-dyninst ${CMAKE_CURRENT_SOURCE_DIR}/bin-to-c-source.py
@@ -294,7 +285,7 @@ if(SPECIFY_RPATH)
 	ENDIF("${isSystemDir}" STREQUAL "-1")
 endif(SPECIFY_RPATH)
 
-add_executable (${KCOV} ${${KCOV}_SRCS} ${SOLIB_generated} bash-redirector-library.cc dyninst-library.cc dyninst-binary-library.cc python-helper.cc bash-helper.cc html-data-files.cc version.c)
+add_executable (${KCOV} ${${KCOV}_SRCS} ${SOLIB_generated} bash-redirector-library.cc dyninst-binary-library.cc python-helper.cc bash-helper.cc html-data-files.cc version.c)
 
 target_link_libraries(${KCOV}
 #	${LIBDW_LIBRARIES}
