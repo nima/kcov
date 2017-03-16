@@ -16,7 +16,7 @@ struct Instance
 {
 	uint32_t *bits;
 	size_t bitVectorSize;
-	uint64_t id;
+	uint32_t id;
 	time_t last_time;
 
 	bool initialized;
@@ -31,7 +31,7 @@ static void write_report(unsigned int idx)
 {
 	(void)mkdir("/tmp/kcov-data", 0755);
 
-	std::string out = fmt("/tmp/kcov-data/%016llx", (long long)g_instance.id);
+	std::string out = fmt("/tmp/kcov-data/%08lx", (long)g_instance.id);
 	std::string tmp = fmt("%s.%u", tmp.c_str(), idx);
 	FILE *fp = fopen(tmp.c_str(), "w");
 
@@ -52,7 +52,7 @@ static void write_at_exit(void)
 	write_report(0);
 }
 
-extern "C" void kcov_dyninst_binary_init(uint64_t id, size_t vectorSize)
+extern "C" void kcov_dyninst_binary_init(uint32_t id, size_t vectorSize)
 {
 	g_instance.bits = (uint32_t *)malloc(vectorSize * sizeof(uint32_t));
 	g_instance.bitVectorSize = vectorSize;
