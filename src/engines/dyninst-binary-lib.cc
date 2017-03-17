@@ -9,8 +9,7 @@
 #include <utils.hh>
 #include <swap-endian.hh>
 
-const uint32_t magic = 0x4d455247; // "MERG"
-const uint32_t version = 1;
+#include "dyninst-file-format.h"
 
 struct Instance
 {
@@ -39,8 +38,13 @@ static void write_report(unsigned int idx)
 	if (!fp)
 		return;
 
-	fwrite(&magic, sizeof(magic), 1, fp);
-	fwrite(&version, sizeof(version), 1, fp);
+	struct dyninst_file dst;
+
+	dst.magic = DYNINST_MAGIC;
+	dst.version = DYNINST_VERSION;
+	dst.n_entries = g_instance.bitVectorSize;
+
+	fwrite(&dst, sizeof(dst), 1, fp);
 	fwrite(g_instance.bits, sizeof(uint32_t), g_instance.bitVectorSize, fp);
 
 	fclose(fp);
@@ -54,7 +58,7 @@ static void write_at_exit(void)
 
 extern "C" void kcov_dyninst_binary_init(uint32_t id, size_t vectorSize)
 {
-	g_instance.bits = (uint32_t *)malloc(vectorSize * sizeof(uint32_t));
+	g_instance.bits = (uint32_t *)calloc(vectorSize, sizeof(uint32_t));
 	g_instance.bitVectorSize = vectorSize;
 	g_instance.id = id;
 	g_instance.last_time = time(NULL);

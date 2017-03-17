@@ -288,11 +288,11 @@ endif(SPECIFY_RPATH)
 add_executable (${KCOV} ${${KCOV}_SRCS} ${SOLIB_generated} bash-redirector-library.cc dyninst-binary-library.cc python-helper.cc bash-helper.cc html-data-files.cc version.c)
 
 target_link_libraries(${KCOV}
+    ${DYNINST_LIBRARIES}
 #	${LIBDW_LIBRARIES}
 	${LIBELF_LIBRARIES}
 	stdc++
 	${LIBCURL_LIBRARIES}
-    ${DYNINST_LIBRARIES}
 	m
 	${DISASSEMBLER_LIBRARIES}
 	${LIBZ_LIBRARIES}

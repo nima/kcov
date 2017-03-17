@@ -23,6 +23,8 @@
 #include <dyninst/BPatch_point.h>
 #include <dyninst/BPatch_function.h>
 
+#include "dyninst-file-format.h"
+
 using namespace kcov;
 
 extern GeneratedData __dyninst_library_data;
@@ -40,7 +42,8 @@ public:
 		m_image(NULL),
 		m_reporterInitFunction(NULL),
 		m_addressReporterFunction(NULL),
-		m_breakpointIdx(0)
+		m_breakpointIdx(0),
+		m_checksum(0)
 	{
 		IParserManager::getInstance().registerParser(*this);
 	}
@@ -64,6 +67,8 @@ public:
 
 		BPatch_funcCallExpr call(*m_addressReporterFunction, args);
 		addSnippet(call, pts);
+
+		m_indexToAddress.push_back(addr);
 
 		m_breakpointIdx++;
 
@@ -164,8 +169,15 @@ public:
 			return false;
 		}
 
-		BPatch_object *p = m_binaryEdit->loadLibrary(binaryLibraryPath.c_str());
-		if (!p) {
+
+		size_t sz;
+		uint8_t *p = (uint8_t *)read_file(&sz, "%s", executable.c_str());
+		m_checksum = hash_block(p, sz);
+		free(p);
+
+
+		BPatch_object *lib = m_binaryEdit->loadLibrary(binaryLibraryPath.c_str());
+		if (!lib) {
 			kcov_debug(INFO_MSG, "Can't load kcov dyninst library\n");
 
 			return false;
@@ -197,7 +209,7 @@ public:
 			return false;
 
 		std::vector< BPatch_snippet * > args;
-		BPatch_snippet id = BPatch_constExpr(0x1234); // FIXME
+		BPatch_snippet id = BPatch_constExpr(m_checksum);
 		BPatch_snippet size = BPatch_constExpr(m_breakpointIdx);
 
 		args.push_back(&id);
@@ -214,6 +226,7 @@ public:
 			return false;
 		}
 
+		if (0)
 		m_binaryEdit->writeFile("/tmp/anka");
 
 
@@ -223,6 +236,29 @@ public:
 
 	bool continueExecution()
 	{
+		std::string filename = fmt("/tmp/kcov-data/%08lx",(long) m_checksum);
+		if (file_exists(filename))
+		{
+			size_t sz;
+			dyninst_file *p = (dyninst_file *)read_file(&sz, "%s", filename.c_str());
+
+			for (unsigned i = 0; i < p->n_entries; i++)
+			{
+				uint32_t cur = p->data[i];
+
+				for (unsigned bit = 0; bit < 32; bit++)
+				{
+					if ( (cur & (1 << bit)) == 0)
+						continue;
+
+					printf("HIT idx %d\n", i * 32 + bit);
+					reportEvent(ev_breakpoint, 0, m_indexToAddress[i * 32 + bit]);
+				}
+			}
+
+			free(p);
+		}
+
 		// Nothing to do, this just rewrites the binary
 		reportEvent(ev_exit, 0, 0);
 
@@ -320,6 +356,9 @@ private:
 	BPatch_function *m_addressReporterFunction;
 
 	uint32_t m_breakpointIdx;
+	uint32_t m_checksum;
+
+	std::vector<uint64_t> m_indexToAddress;
 };
 
 
